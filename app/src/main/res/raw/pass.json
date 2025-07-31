@@ -1,0 +1,95 @@
+{
+  "active": ["applevas", "googlesmarttap-google"],
+  "protocols": [
+    {
+      "id": "applevas",
+      "label": "Apple VAS",
+
+      "type": "apple_vas",
+
+      "vas_mode": "vas_only",
+      "terminal_type": "payment",
+      "protocol_version": 1,
+      "protocol_mode": "full",
+      "vas_supported": true,
+      "auth_required": false,
+
+      "active": ["passkit", "zebra", "springcard", "passninja"],
+      "nonce": "12345678",
+
+      "merchants": [
+        {
+          "id": "passkit",
+          "label": "PassKit",
+          "pass_type_identifier": "pass.com.passkit.pksamples.nfcdemo",
+          "signup_url": "https://apple.com",
+          "crypto_providers": [
+            {
+              "type": "regular",
+              "keys": [
+                "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEID0VR/I814rQUqWIYPEhno+3kexN/jN2n1ub+mJ6ZWyhoAoGCCqGSM49\nAwEHoUQDQgAEwKMBv29ByaSLiGF0FctuyB+Hs2oZ1kDIYhTVllPexNGudAlm8IWO\nH0e+Exc97/zBdawu7Yl+XytQONszGzAK7w==\n-----END EC PRIVATE KEY-----"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "zebra",
+          "label": "Zebra",
+          "pass_type_identifier": "pass.com.pronto.zebra-wallet-pass.demo",
+          "crypto_providers": [
+            {
+              "type": "regular",
+              "keys": [
+                "MHcCAQEEIPU2hwiTOSBVO3uf+xau7Zx31b/ZZirxSaa5+WW3PwzKoAoGCCqGSM49\nAwEHoUQDQgAEOAuPfwpDM6fk8iqWsc6ow+s4eq/YNmMtYtzApmGczCi0KMW/hjjX\nDpMoxrRhOR6y796o27/+k8F9FOLmlNyOTA=="
+              ]
+            }
+          ]
+        },
+        {
+          "id": "springcard",
+          "label": "SpringCard",
+          "pass_type_identifier": "pass.com.springcard.springblue.generic",
+          "crypto_providers": [
+            {
+              "type": "regular",
+              "keys": [
+                "307702010104202a7e3d3ecaf054123a2d87103d40af946ac7137612488a24c0927da2f886d60da00a06082a8648ce3d030107a14403420004f51099687c575088d01509f02a6abaf9c56a14134ee9929099e928b0c411666bad3ecf2ccd4b222e89082dd6a24ffec5e6a525f2a49f12f968718cbacfdf2323"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "passninja",
+          "label": "PassNinja (No Key)",
+          "pass_type_identifier": "pass.com.ndudfield.nfc"
+        }
+      ]
+    },
+
+    {
+      "id": "googlesmarttap-google",
+      "label": "Google Smart Tap (Google)",
+      "type": "google_smart_tap",
+
+      "system_flags": ["zlib_supported"],
+
+      "mode": "vas_or_pay",
+
+      "session_id": null,
+      "nonce": null,
+      "ephemeral_key": null,
+      "collector": {
+        "collector_id": 68263207,
+        "crypto_providers": [
+          {
+            "type": "regular",
+            "keys": {
+              "1": "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEINSUGYIBoN2SGOjHXYnJIm+3kMbH19ggaVfkc6I4IaIvoAoGCCqGSM49\nAwEHoUQDQgAEhFQaFwESHjXl9J/2K6zDdMjEDFDbXLLziP8IMYBvctLQtmmiJLPZ\n7NI2Sip43J2mctRrlUn0DpeA9UJ0PQZsuQ==\n-----END EC PRIVATE KEY-----",
+              "2": "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIKoNpKr8qWrUUCN7CKgru6aOtCbm4wWZ+jv7ExTzmFvDoAoGCCqGSM49\nAwEHoUQDQgAE+6UpNSDq9WVYR1N8H6llXeznqLvq2Uapwj1fVA1nId7jNwwBX6YM\nmr0FY66lKR9iR/dp76qilyP4tzUKmRUXVg==\n-----END EC PRIVATE KEY-----"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

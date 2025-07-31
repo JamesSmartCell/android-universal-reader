@@ -3,17 +3,27 @@ package com.kormax.universalreader
 import android.content.Context
 import android.net.Uri
 import android.nfc.tech.IsoDep
+import android.util.Log
 import com.kormax.universalreader.iso7816.Iso7816Command
 import com.kormax.universalreader.iso7816.Iso7816Response
 import com.kormax.universalreader.structable.Packable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.logging.HttpLoggingInterceptor
 import org.bouncycastle.jce.ECNamedCurveTable
 import org.bouncycastle.jce.ECPointUtil
 import org.bouncycastle.jce.provider.BouncyCastleProvider
@@ -25,6 +35,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.StringReader
 import java.math.BigInteger
+import java.nio.charset.StandardCharsets
 import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.MessageDigest
@@ -32,8 +43,26 @@ import java.security.Security
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECPublicKeySpec
 import java.util.zip.Inflater
+import javax.crypto.Cipher
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
+
+@Serializable
+data class SetPointsRequest(
+    val cardName: String,
+    val cardId: String,
+    val points: Int
+)
+
+// You might also want a data class for the expected response if your Vercel API returns JSON
+// For example, if it returns a success message:
+@Serializable
+data class SetPointsResponse(
+    val message: String
+    // Add other fields if your API returns more
+)
 
 class Constants {
     companion object {
@@ -251,14 +280,14 @@ fun loadECKeyFromString(pemString: String?): KeyPair? {
         val converter = JcaPEMKeyConverter()
         return converter.getKeyPair(
             PEMParser(
-                    StringReader(
-                        EC_PRIVATE_KEY_HEADER +
+                StringReader(
+                    EC_PRIVATE_KEY_HEADER +
                             "\n" +
                             Base64.encode(decodedData) +
                             "\n" +
                             EC_PRIVATE_KEY_FOOTER
-                    )
                 )
+            )
                 .readObject() as org.bouncycastle.openssl.PEMKeyPair
         )
     } catch (e: Exception) {}
@@ -276,5 +305,151 @@ fun loadJsonFile(context: Context, uri: Uri): String? {
         // Handle any exceptions, such as file not found or deserialization error
         e.printStackTrace()
         null
+    }
+}
+
+val loggingInterceptor = HttpLoggingInterceptor().apply {
+    level = HttpLoggingInterceptor.Level.BODY // Logs request and response bodies
+}
+
+val okHttpClient = OkHttpClient.Builder()
+    .addInterceptor(loggingInterceptor) // Add the logging interceptor
+    // You can configure other settings like timeouts here:
+    // .connectTimeout(15, TimeUnit.SECONDS)
+    // .readTimeout(15, TimeUnit.SECONDS)
+    // .writeTimeout(15, TimeUnit.SECONDS)
+    .build()
+
+suspend fun setLoyaltyPoints(
+    cardName: String,
+    cardIdentifier: String, // This will be "cardid-ethAddress"
+    newPointsValue: Int
+): Pair<Boolean, String> { // Returns Pair<isSuccess, responseBodyOrErrorMessage>
+
+    val apiUrl = "https://openpasskeywallet-ckb-demo.vercel.app/api/setPoints"
+
+    val setPointsPayload = SetPointsRequest(
+        cardName,
+        cardId = cardIdentifier,
+        points = newPointsValue
+    )
+    val jsonPayload = Json.encodeToString(setPointsPayload)
+    val requestBody = jsonPayload.toRequestBody("application/json; charset=utf-8".toMediaType())
+
+    val request = Request.Builder()
+        .url(apiUrl)
+        .post(requestBody)
+        .build()
+
+    Log.d("YOLESS", "Sending POST request to $apiUrl with payload: $jsonPayload")
+
+    return try {
+        // Execute the request on a background thread using withContext
+        withContext(Dispatchers.IO) {
+            // Synchronous execution - this will block the current (IO) thread
+            // until the response is received or an error occurs.
+            val response = okHttpClient.newCall(request).execute()
+
+            val responseBodyString = response.body?.string() ?: "" // Read body once
+            Log.d("YOLESS", "Response Status: ${response.code}")
+            Log.d("YOLESS", "Response Body: $responseBodyString")
+
+            val isSuccess = response.isSuccessful
+            response.close() // VERY IMPORTANT: Always close the response
+
+            if (isSuccess) {
+                Pair(true, responseBodyString)
+            } else {
+                Pair(false, "Error: ${response.code} - $responseBodyString")
+            }
+        }
+    } catch (e: IOException) {
+        Log.e("YOLESS", "Network IOException: ${e.message}", e)
+        Pair(false, "Network Failure: ${e.message ?: "Unknown I/O error"}")
+    } catch (e: Exception) {
+        Log.e("YOLESS", "General Exception: ${e.message}", e)
+        Pair(false, "Error: ${e.message ?: "Unknown error"}")
+    }
+}
+
+
+
+@OptIn(ExperimentalEncodingApi::class)
+object Aes256Decrypter {
+
+    private const val ALGORITHM = "AES"
+
+    // Assuming your TypeScript 'ALGORITHM' variable implies CBC with PKCS padding,
+    // which is common for crypto.createCipheriv when not explicitly AES-GCM etc.
+    // Node.js 'aes-256-cbc' uses PKCS#7 padding by default, which is compatible
+    // with PKCS#5Padding for AES.
+    private const val TRANSFORMATION = "AES/CBC/PKCS5Padding"
+
+    /**
+     * Decrypts an AES-256 encrypted string where the IV is prepended to the ciphertext,
+     * separated by a colon, and both are Base64 encoded.
+     *
+     * @param combinedIvAndCiphertext The input string in the format "base64(iv):base64(ciphertext)".
+     * @param secretKeyString  The secret key used for encryption, as a String.
+     *                         This key will be converted to bytes (UTF-8) and used directly.
+     *                         Ensure this matches how the 'key: Buffer' is handled in TypeScript.
+     *                         AES-256 requires a 32-byte key.
+     * @return The decrypted plaintext string, or null if decryption fails.
+     */
+    fun decrypt(combinedIvAndCiphertext: String, secretKeyString: String = "soMF8MWRaPpIc5YI2WBPE8qstcCHUYOULO6coApsmAY="): String? {
+        try {
+            // 1. Split the input string into Base64 encoded IV and Base64 encoded ciphertext
+            val parts = combinedIvAndCiphertext.split(':')
+            if (parts.size != 2) {
+                Log.w("YOLESS","Error: Invalid input format. Expected 'base64(iv):base64(ciphertext)'.")
+                throw IllegalArgumentException("Invalid input format")
+            }
+            val ivBase64 = parts[0]
+            val ciphertextBase64 = parts[1]
+
+            // 2. Decode the Base64 IV
+            val ivBytes = Base64.decode(ivBase64)
+            if (ivBytes.size != 16) { // AES block size / IV size
+                Log.w("YOLESS","Error: Decoded IV is not 16 bytes long. Actual length: ${ivBytes.size}")
+                throw IllegalArgumentException("Decoded IV is not 16 bytes long")
+            }
+            val ivParameterSpec = IvParameterSpec(ivBytes)
+
+            // 3. Decode the Base64 ciphertext
+            val ciphertextBytes = Base64.decode(ciphertextBase64)
+
+            // 4. Decode the Base64 Secret Key to get the raw 32 key bytes
+            val keyBytes: ByteArray
+            try {
+                keyBytes = Base64.decode(secretKeyString);
+            } catch (e: IllegalArgumentException) {
+                println("Error: Secret key is not valid Base64: ${e.message}")
+                throw IllegalArgumentException("Secret key is not valid Base64");
+            }
+            if (keyBytes.size != 32) {
+                Log.w("YOLESS","Warning: Key length is not 32 bytes for AES-256. Actual: ${keyBytes.size}. Ensure this is intended.")
+                // Depending on the Cipher provider, it might truncate, pad, or throw an error.
+                // It's best to ensure the key is exactly 32 bytes.
+                throw IllegalArgumentException("Key length is not 32 bytes for AES-256")
+            }
+            val secretKey = SecretKeySpec(
+                keyBytes.copyOf(32),
+                ALGORITHM
+            ) // Use copyOf to ensure 32 bytes if needed, though exact match is better.
+
+            // 5. Initialize the Cipher for decryption
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, ivParameterSpec)
+
+            // 6. Decrypt the data
+            val plaintextBytes = cipher.doFinal(ciphertextBytes)
+
+            // 7. Convert plaintext bytes to String
+            return String(plaintextBytes, StandardCharsets.UTF_8)
+
+        } catch (e: Exception) {
+            Log.w("YOLESS","Decryption failed: ${e.message}")
+            throw e;
+        }
     }
 }

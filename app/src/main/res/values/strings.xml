@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Universal Reader</string>
+    <string name="hce_service_description">Emulates a tag for adding a pass to Google Wallet</string>
+    <string name="ndef_tag_application_aid_group">NDEF Tag Application</string>
 </resources>
